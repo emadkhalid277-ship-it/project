@@ -26,6 +26,7 @@ export const INITIAL_GROUPS: Group[] = rawData.map((d, i) => ({
   teacherId: `t${i}` 
 }));
 
+// Add default points and streak to INITIAL_STUDENTS
 export const INITIAL_STUDENTS: Student[] = rawData.flatMap((d, i) => 
   d.students.map((s, si) => ({
     id: `s-${i}-${si}`,
@@ -34,7 +35,9 @@ export const INITIAL_STUDENTS: Student[] = rawData.flatMap((d, i) =>
     age: Math.floor(Math.random() * 10) + 7, // عمر بين 7 و 16
     joinDate: `2024-0${Math.floor(Math.random() * 5) + 1}-0${Math.floor(Math.random() * 9) + 1}`,
     phone: `05${Math.floor(Math.random() * 90000000 + 10000000)}`,
-    memorizedParts: Math.floor(Math.random() * 15) + 1
+    memorizedParts: Math.floor(Math.random() * 15) + 1,
+    points: 0,
+    streak: 0
   }))
 );
 

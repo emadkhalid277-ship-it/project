@@ -16,7 +16,9 @@ import {
   Star,
   Info,
   BarChart3,
-  BookMarked
+  BookMarked,
+  Trophy,
+  MapPin
 } from 'lucide-react';
 
 export const EVALUATION_COLORS = {
@@ -26,26 +28,14 @@ export const EVALUATION_COLORS = {
   'يحتاج متابعة': 'text-red-600 bg-red-50',
 };
 
-export const ATTENDANCE_ICONS = {
-  'حاضر': <CheckCircle className="w-4 h-4 text-emerald-500" />,
-  'غائب': <XCircle className="w-4 h-4 text-red-500" />,
-  'متأخر': <Clock className="w-4 h-4 text-amber-500" />,
-};
-
-export const NOTIFICATION_ICONS = {
-  'achievement': <Star className="w-5 h-5 text-amber-500" />,
-  'reminder': <Clock className="w-5 h-5 text-blue-500" />,
-  'improvement': <AlertCircle className="w-5 h-5 text-red-500" />,
-  'system': <Info className="w-5 h-5 text-gray-500" />,
-};
-
 export const NAVIGATION_ITEMS = [
   { id: 'dashboard', label: 'لوحة التحكم', icon: <LayoutDashboard size={20} /> },
   { id: 'attendance', label: 'التسجيل اليومي', icon: <ClipboardList size={20} /> },
   { id: 'followup', label: 'المساعد القرآني', icon: <BookMarked size={20} />, restricted: true },
+  { id: 'leaderboard', label: 'لوحة الصدارة', icon: <Trophy size={20} /> },
   { id: 'students', label: 'قائمة الطلاب', icon: <Users size={20} /> },
-  { id: 'history', label: 'السجلات السابقة', icon: <History size={20} /> },
   { id: 'insights', label: 'تحليلات ذكية (AI)', icon: <BrainCircuit size={20} /> },
+  { id: 'discover', label: 'اكتشف مراكز قريبة', icon: <MapPin size={20} /> },
   { id: 'statistics', label: 'إحصائيات الحلقات', icon: <BarChart3 size={20} /> },
   { id: 'notifications', label: 'الإشعارات', icon: <Bell size={20} /> },
 ];

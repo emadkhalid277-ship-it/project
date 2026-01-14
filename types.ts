@@ -5,6 +5,14 @@ export type EvaluationGrade = 'ممتاز' | 'جيد جدًا' | 'جيد' | 'ي�
 
 export type NotificationType = 'achievement' | 'reminder' | 'improvement' | 'system';
 
+export interface Badge {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  description: string;
+}
+
 export interface Student {
   id: string;
   name: string;
@@ -12,7 +20,11 @@ export interface Student {
   age: number;
   joinDate: string;
   phone: string;
-  memorizedParts: number; // عدد الأجزاء المحفوظة
+  memorizedParts: number;
+  photoURL?: string;
+  badges?: string[];
+  points: number; // New: Total points for leaderboard
+  streak: number; // New: Consecutive attendance streak
 }
 
 export interface Group {
@@ -54,20 +66,8 @@ export interface FollowUpRecord {
   };
 }
 
-export interface Statistics {
-  attendanceRate: number;
-  absenceCount: number;
-  lateCount: number;
-  recitationCount: number;
-  averageEvaluation: string;
-}
-
-export interface Notification {
-  id: string;
-  type: NotificationType;
+export interface GroundingLocation {
   title: string;
-  message: string;
-  timestamp: string;
-  recipientId: string;
-  isRead: boolean;
+  uri: string;
+  address?: string;
 }
