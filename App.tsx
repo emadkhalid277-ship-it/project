@@ -1,30 +1,32 @@
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   XAxis, 
   YAxis, 
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer,
-  AreaChart,
-  Area
+  BarChart,
+  Bar,
+  Cell,
+  PieChart,
+  Pie
 } from 'recharts';
 import { 
   INITIAL_STUDENTS as INITIAL_STUDENTS_MOCK, 
-  INITIAL_GROUPS, 
+  INITIAL_GROUPS as INITIAL_GROUPS_MOCK, 
   INITIAL_TEACHERS, 
   generateHistory 
 } from './mockData';
 import { 
   Student, 
   DailyRecord, 
-  FollowUpRecord,
-  EvaluationGrade,
   Teacher,
-  Badge,
-  GroundingLocation
+  Group,
+  AttendanceStatus,
+  EvaluationGrade
 } from './types';
-import { NAVIGATION_ITEMS, EVALUATION_COLORS, QURAN_SURAHS } from './constants';
+import { TEACHER_NAV, ADMIN_NAV, EVALUATION_COLORS } from './constants';
 import { 
   Users, 
   Award, 
@@ -32,766 +34,829 @@ import {
   ChevronLeft, 
   Search, 
   BookOpen, 
-  XCircle, 
   Clock, 
-  History, 
-  BrainCircuit, 
   Bell, 
-  Star, 
   Trophy, 
   UserCheck, 
-  Sparkles, 
-  Medal, 
-  Crown, 
-  Lock, 
-  User, 
-  Eye, 
-  EyeOff, 
   LogOut, 
-  X, 
-  BookMarked, 
-  Phone, 
-  CalendarDays, 
-  Target, 
-  ChevronDown, 
-  TrendingUp, 
   Activity, 
   Zap, 
-  Camera, 
-  Loader2, 
-  Check, 
-  Quote, 
-  Copy, 
-  Share2, 
-  Download, 
-  Flame, 
-  Lightbulb, 
-  MapPin, 
+  BarChart3, 
+  Plus, 
+  Settings, 
+  Trash2, 
+  Edit, 
+  Layers, 
+  Eye, 
+  EyeOff, 
+  UserPlus, 
+  ChevronRight, 
+  GraduationCap, 
+  Globe, 
+  Briefcase, 
+  X,
+  LayoutDashboard,
+  Star,
+  MapPin,
   ExternalLink,
-  Info,
-  BarChart3,
-  CheckCircle2
+  CreditCard,
+  Sparkles,
+  CheckCircle2,
+  Phone,
+  User,
+  Flag,
+  ShieldCheck,
+  Menu,
+  FileBarChart,
+  BrainCircuit,
+  BookMarked,
+  ClipboardList,
+  CheckCircle,
+  MessageSquare,
+  Sparkle
 } from 'lucide-react';
-import { analyzeStudentProgress, generateStarPraise, generateCertificate, findNearbyCenters } from './geminiService';
-import { uploadStudentPhoto } from './firebaseService';
+import { analyzeStudentProgress } from './geminiService';
 
-const ALLOWED_TEACHERS_FOR_FOLLOWUP = [
-  'm_loki', 'm_alzubaidi', 'a_alamoudi', 'mustafa', 'a_baraja', 'm_baarama', 'm_alkhatib', 'a_marouf', 'n_alkathiri'
-];
-
-const EVALUATION_POINTS: Record<EvaluationGrade, number> = {
-  'ممتاز': 10, 'جيد جدًا': 7, 'جيد': 5, 'يحتاج متابعة': 2
-};
-
-const BADGES: Badge[] = [
-  { id: 'b1', name: 'المواظب', icon: '🔥', color: 'bg-orange-100 text-orange-600', description: 'حضور 5 أيام متتالية' },
-  { id: 'b2', name: 'المتقن', icon: '💎', color: 'bg-emerald-100 text-emerald-600', description: 'تقييم ممتاز لـ 3 أيام' },
-  { id: 'b3', name: 'نجم الحلقة', icon: '⭐', color: 'bg-amber-100 text-amber-600', description: 'اختياره نجم اليوم' },
-];
-
-const NOTIFICATION_ICONS = {
-  system: <BrainCircuit size={24} />,
-  reminder: <Clock size={24} />,
-  achievement: <Trophy size={24} />
-};
+type AuthStage = 'selecting' | 'staff-login' | 'student-login' | 'guest-view' | 'authenticated-staff' | 'authenticated-student';
 
 const App: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authStage, setAuthStage] = useState<AuthStage>('selecting');
   const [currentUser, setCurrentUser] = useState<Teacher | null>(null);
+  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showSubModal, setShowSubModal] = useState(false);
+  const [subForm, setSubForm] = useState({ name: '', nationality: '', age: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<Record<string, string>>({});
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   
-  // States
-  const [students, setStudents] = useState<Student[]>(INITIAL_STUDENTS_MOCK.map(s => ({ ...s, points: Math.floor(Math.random() * 100), streak: Math.floor(Math.random() * 7) })));
-  const [records, setRecords] = useState<DailyRecord[]>([]);
-  const [followUpRecords, setFollowUpRecords] = useState<FollowUpRecord[]>([]);
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-  const [selectedStudentForAi, setSelectedStudentForAi] = useState<Student | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [starPraise, setStarPraise] = useState<string | null>(null);
-  const [isGeneratingPraise, setIsGeneratingPraise] = useState(false);
-  const [generatedCertificateUrl, setGeneratedCertificateUrl] = useState<string | null>(null);
-  const [isGeneratingCertificate, setIsGeneratingCertificate] = useState(false);
-  const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<Student | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [discoveryData, setDiscoveryData] = useState<{ text: string; locations: GroundingLocation[] } | null>(null);
-  const [isDiscovering, setIsDiscovering] = useState(false);
+  const MANAGER_PHONE = "0501234567"; 
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [statDetailModal, setStatDetailModal] = useState<{ type: string; students: Student[]; color: string } | null>(null);
-  const [pickerModal, setPickerModal] = useState<{ studentId: string; type: 'memorization' | 'revision'; target: 'surah' | 'from' | 'to'; } | null>(null);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [groups, setGroups] = useState<Group[]>(INITIAL_GROUPS_MOCK);
+  const [teachers, setTeachers] = useState<Teacher[]>(INITIAL_TEACHERS);
+  const [records, setRecords] = useState<DailyRecord[]>([]);
 
   useEffect(() => {
-    setRecords(generateHistory(students));
+    setStudents(INITIAL_STUDENTS_MOCK);
+    setRecords(generateHistory(INITIAL_STUDENTS_MOCK));
   }, []);
 
-  const teacherGroup = useMemo(() => INITIAL_GROUPS.find(g => g.teacherId === currentUser?.id), [currentUser]);
+  const navigation = useMemo(() => {
+    if (authStage === 'authenticated-staff' && currentUser) {
+      return currentUser.role === 'admin' ? ADMIN_NAV : TEACHER_NAV;
+    }
+    if (authStage === 'authenticated-student') {
+      return [
+        { id: 'student_profile', label: 'ملفي الشخصي', icon: <LayoutDashboard size={20} /> },
+        { id: 'student_progress', label: 'سجلي اليومي', icon: <ClipboardList size={20} /> },
+        { id: 'student_badges', label: 'أوسمتي', icon: <Award size={20} /> }
+      ];
+    }
+    return [];
+  }, [authStage, currentUser]);
+
+  useEffect(() => {
+    if (authStage === 'authenticated-staff' && currentUser && !activeTab) {
+      setActiveTab(currentUser.role === 'admin' ? 'admin_dashboard' : 'dashboard');
+    }
+    if (authStage === 'authenticated-student' && !activeTab) {
+      setActiveTab('student_profile');
+    }
+  }, [authStage, currentUser]);
+
+  const teacherGroup = useMemo(() => groups.find(g => g.teacherId === currentUser?.id), [currentUser, groups]);
   const teacherStudents = useMemo(() => students.filter(s => s.groupId === teacherGroup?.id), [teacherGroup, students]);
-  const isFollowUpAllowed = useMemo(() => currentUser ? ALLOWED_TEACHERS_FOR_FOLLOWUP.includes(currentUser.username) : false, [currentUser]);
 
-  const sortedLeaderboard = useMemo(() => [...students].sort((a, b) => b.points - a.points), [students]);
-
-  const stats = useMemo(() => {
-    const todayRecords = records.filter(r => r.date === selectedDate && teacherStudents.some(s => s.id === r.studentId));
-    const attendedCount = todayRecords.filter(r => r.attendance !== 'غائب').length;
-    return {
-      completionRate: teacherStudents.length ? Math.round((todayRecords.length / teacherStudents.length) * 100) : 0,
-      attendanceRate: teacherStudents.length ? Math.round((attendedCount / teacherStudents.length) * 100) : 0,
-      recitationCount: todayRecords.filter(r => r.recitation === 'سمّع').length,
-      absenceCount: todayRecords.filter(r => r.attendance === 'غائب').length,
-      lateCount: todayRecords.filter(r => r.attendance === 'متأخر').length,
-      lists: {
-        attended: teacherStudents.filter(s => todayRecords.some(r => r.studentId === s.id && r.attendance !== 'غائب')),
-        absent: teacherStudents.filter(s => todayRecords.some(r => r.studentId === s.id && r.attendance === 'غائب')),
-        late: teacherStudents.filter(s => todayRecords.some(r => r.studentId === s.id && r.attendance === 'متأخر')),
-        recitation: teacherStudents.filter(s => todayRecords.some(r => r.studentId === s.id && r.recitation === 'سمّع'))
-      }
-    };
-  }, [records, selectedDate, teacherStudents]);
-
-  const starOfTheDay = useMemo(() => {
-    if (teacherStudents.length === 0) return null;
-    const todayReciters = records.filter(r => r.date === selectedDate && r.recitation === 'سمّع' && r.evaluation === 'ممتاز' && teacherStudents.some(ts => ts.id === r.studentId));
-    if (todayReciters.length > 0) return teacherStudents.find(s => s.id === todayReciters[0].studentId) || teacherStudents[0];
-    return teacherStudents[0];
-  }, [selectedDate, records, teacherStudents]);
-
-  const handleDiscover = async () => {
-    setIsDiscovering(true);
-    try {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(async (pos) => {
-          const res = await findNearbyCenters(pos.coords.latitude, pos.coords.longitude);
-          setDiscoveryData(res);
-          setIsDiscovering(false);
-        }, () => {
-          findNearbyCenters(24.7136, 46.6753).then(res => { setDiscoveryData(res); setIsDiscovering(false); });
-        });
-      } else {
-        findNearbyCenters(24.7136, 46.6753).then(res => { setDiscoveryData(res); setIsDiscovering(false); });
-      }
-    } catch (e) {
-      console.error(e);
-      setIsDiscovering(false);
+  const handleStaffLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const user = teachers.find(t => t.name === loginForm.username && loginForm.password === '1234');
+    if (user) {
+      setCurrentUser(user);
+      setAuthStage('authenticated-staff');
+    } else {
+      alert("البيانات غير صحيحة. استخدم الرمز الموحد 1234.");
     }
   };
 
-  const handleGeneratePraise = async () => {
-    if (!starOfTheDay) return;
-    setIsGeneratingPraise(true);
-    try {
-      const praise = await generateStarPraise(starOfTheDay, teacherGroup?.name || 'الحلقة');
-      setStarPraise(praise);
-    } finally { setIsGeneratingPraise(false); }
+  const handleStudentLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const student = students.find(s => s.name === loginForm.username && loginForm.password === '1234');
+    if (student) {
+      setCurrentStudent(student);
+      setAuthStage('authenticated-student');
+    } else {
+      alert("الرمز غير صحيح. الرمز الموحد هو 1234.");
+    }
   };
 
-  const updateDailyRecord = (studentId: string, field: keyof DailyRecord, value: any) => {
-    setRecords(prev => {
-      const existingIdx = prev.findIndex(r => r.studentId === studentId && r.date === selectedDate);
-      let updated = [...prev];
-      if (existingIdx !== -1) {
-        updated[existingIdx] = { ...updated[existingIdx], [field]: value };
-      } else {
-        updated.push({ id: `rec-${studentId}-${selectedDate}`, studentId, date: selectedDate, attendance: 'حاضر', recitation: 'لم يسمّع', evaluation: 'جيد', notes: '', [field]: value } as DailyRecord);
-      }
-      
-      if (field === 'evaluation') {
-        const pts = EVALUATION_POINTS[value as EvaluationGrade] || 0;
-        setStudents(sPrev => sPrev.map(s => s.id === studentId ? { ...s, points: s.points + pts } : s));
-      }
-      return updated;
-    });
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setCurrentStudent(null);
+    setAuthStage('selecting');
+    setActiveTab('');
+    setLoginForm({ username: '', password: '' });
   };
 
-  const renderDashboard = () => (
-    <div className="space-y-8 md:space-y-12 animate-in fade-in duration-700">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <section className="lg:col-span-2 relative overflow-hidden bg-gradient-to-br from-emerald-900 to-teal-900 rounded-[3rem] p-8 md:p-12 shadow-2xl text-white">
-           <div className="relative z-10 h-full flex flex-col justify-between">
-              <div>
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="px-4 py-1.5 bg-white/10 backdrop-blur-md rounded-full text-xs font-black uppercase tracking-widest border border-white/10">لوحة المتابعة الرئيسية</span>
-                </div>
-                <h2 className="text-3xl md:text-5xl font-black mb-4 tracking-tighter">أداء حلقة {teacherGroup?.name}</h2>
-                <p className="opacity-70 text-sm md:text-xl mb-10 max-w-xl">مرحباً بك مجدداً يا أستاذ {currentUser?.name}. إليك نظرة شاملة لليوم.</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="bg-white/5 backdrop-blur-xl rounded-[2.5rem] p-6 border border-white/10 flex items-center gap-5">
-                   <div className="w-14 h-14 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg"><UserCheck size={28}/></div>
-                   <div>
-                      <p className="text-sm font-bold opacity-60 leading-none mb-2">الطلاب الحاضرون</p>
-                      <p className="text-3xl font-black leading-none">{stats.lists.attended.length} <span className="text-sm opacity-40">/ {teacherStudents.length}</span></p>
-                   </div>
-                </div>
-                <div className="bg-white/5 backdrop-blur-xl rounded-[2.5rem] p-6 border border-white/10 flex items-center gap-5">
-                   <div className="w-14 h-14 bg-amber-500 rounded-2xl flex items-center justify-center shadow-lg"><Trophy size={28}/></div>
-                   <div>
-                      <p className="text-sm font-bold opacity-60 leading-none mb-2">أعلى رصيد نقاط</p>
-                      <p className="text-3xl font-black leading-none">{Math.max(...teacherStudents.map(s => s.points))}</p>
-                   </div>
-                </div>
-              </div>
-           </div>
-        </section>
+  const handleSubscription = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    setIsSuccess(true);
+    setIsSubmitting(false);
+  };
 
-        <section className="bg-white rounded-[3rem] p-8 md:p-10 shadow-2xl border border-slate-100 flex flex-col relative overflow-hidden group">
-           <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform duration-700"><Crown size={120} /></div>
-           <h3 className="text-xl font-black text-slate-800 mb-8 flex items-center gap-4"><Crown className="text-amber-500 animate-bounce" size={28} /> نجم الحلقة اليوم</h3>
-           {starOfTheDay ? (
-             <div className="flex flex-col items-center text-center flex-1">
-                <div className="relative mb-6">
-                  <div className="absolute inset-0 bg-amber-400/20 blur-2xl rounded-full scale-125 animate-pulse"></div>
-                  <div className="w-20 h-20 md:w-24 md:h-24 bg-emerald-50 text-emerald-600 rounded-[2rem] flex items-center justify-center font-black border-2 border-white shadow-md overflow-hidden">
-                     {starOfTheDay.photoURL ? <img src={starOfTheDay.photoURL} className="w-full h-full object-cover" /> : starOfTheDay.name.charAt(0)}
-                  </div>
-                  <div className="absolute -bottom-2 -right-2 bg-amber-400 text-white p-2.5 rounded-full border-4 border-white shadow-xl"><Star size={20} fill="currentColor"/></div>
-                </div>
-                <h4 className="font-black text-slate-800 text-2xl mb-1">{starOfTheDay.name}</h4>
-                <div className="w-full space-y-4 mt-auto">
-                   {starPraise ? (
-                     <div className="p-6 bg-amber-50 rounded-[2.5rem] border-2 border-amber-100 text-right animate-in zoom-in duration-500 relative">
-                        <Quote className="absolute -top-4 -right-4 text-amber-200/50" size={48} />
-                        <p className="text-sm font-bold text-amber-900 leading-relaxed italic relative z-10">"{starPraise}"</p>
-                     </div>
-                   ) : (
-                     <button onClick={handleGeneratePraise} disabled={isGeneratingPraise} className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black text-base flex items-center justify-center gap-4 hover:bg-slate-800 transition-all shadow-2xl active:scale-95 group">
-                        {isGeneratingPraise ? <Loader2 size={24} className="animate-spin" /> : <Sparkles size={24} className="text-amber-400 group-hover:rotate-12 transition-transform" />}
-                        توليد ثناء بليغ (AI)
-                     </button>
-                   )}
-                </div>
-             </div>
-           ) : <div className="flex-1 flex flex-col items-center justify-center opacity-30 grayscale"><Star size={64} /><p className="font-black mt-4">بانتظار المتميزين...</p></div>}
-        </section>
+  const updateAttendance = (studentId: string, status: AttendanceStatus) => {
+    setRecords(prev => prev.map(r => 
+      r.studentId === studentId ? { ...r, attendance: status } : r
+    ));
+  };
+
+  const runAiAnalysis = async (student: Student) => {
+    setAnalyzingId(student.id);
+    const studentRecords = records.filter(r => r.studentId === student.id);
+    const advice = await analyzeStudentProgress(student, studentRecords);
+    setAiAnalysis(prev => ({ ...prev, [student.id]: advice || "لا توجد بيانات كافية للتحليل حالياً." }));
+    setAnalyzingId(null);
+  };
+
+  const Card: React.FC<{ children?: React.ReactNode; className?: string }> = ({ children, className = "" }) => (
+    <div className={`bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-8 ${className}`}>
+      {children}
+    </div>
+  );
+
+  const StatBox = ({ label, value, icon, color }: any) => (
+    <Card className="flex items-center gap-6 hover:translate-y-[-5px] transition-all cursor-pointer">
+      <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center ${color}`}>
+        {icon}
       </div>
+      <div>
+        <p className="text-sm font-bold text-slate-400 mb-1">{label}</p>
+        <h4 className="text-3xl font-black text-slate-800 tracking-tight">{value}</h4>
+      </div>
+    </Card>
+  );
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-        {[
-          { label: 'نسبة الحضور', value: `${stats.attendanceRate}%`, color: 'bg-emerald-50', text: 'text-emerald-600', icon: <Users size={28} />, list: stats.lists.attended },
-          { label: 'المسمّعين اليوم', value: stats.recitationCount, color: 'bg-blue-50', text: 'text-blue-600', icon: <BookOpen size={28} />, list: stats.lists.recitation },
-          { label: 'الغياب', value: stats.absenceCount, color: 'bg-red-50', text: 'text-red-600', icon: <XCircle size={28} />, list: stats.lists.absent },
-          { label: 'المتأخرين', value: stats.lateCount, color: 'bg-amber-50', text: 'text-amber-600', icon: <Clock size={28} />, list: stats.lists.late },
-        ].map((stat, i) => (
-          <button key={i} onClick={() => setStatDetailModal({ type: stat.label, students: stat.list, color: stat.text.replace('text', 'bg') })} className={`${stat.color} p-8 md:p-10 rounded-[3rem] border-2 border-transparent shadow-xl transition-all text-right group relative overflow-hidden hover:scale-[1.03]`}>
-            <div className={`mb-4 ${stat.text} opacity-40 group-hover:opacity-100 group-hover:-translate-y-1 transition-all`}>{stat.icon}</div>
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{stat.label}</span>
-            <h3 className={`text-3xl md:text-5xl font-black ${stat.text} tracking-tighter`}>{stat.value}</h3>
-          </button>
-        ))}
+  // Added missing renderPlaceholder function to fix the ReferenceError on line 592
+  const renderPlaceholder = (title: string, icon: React.ReactNode) => (
+    <div className="flex flex-col items-center justify-center min-h-[400px] space-y-6 animate-in fade-in py-10">
+      <div className="text-slate-200">
+        {icon}
+      </div>
+      <div className="text-center space-y-2">
+        <h3 className="text-3xl font-black text-slate-800">{title}</h3>
+        <p className="text-slate-400 font-bold text-lg">هذا القسم متاح قريباً في التحديث القادم.</p>
       </div>
     </div>
   );
 
   const renderAttendance = () => (
-    <div className="space-y-8 animate-in slide-in-from-bottom-12">
-      <div className="bg-white p-8 rounded-[3rem] shadow-2xl border-2 border-slate-50 flex flex-col md:flex-row items-center justify-between gap-10">
-        <div className="flex items-center gap-6 text-emerald-600 bg-emerald-50 px-8 py-5 rounded-[2rem] border border-emerald-100 w-full md:w-auto">
-          <Calendar size={32} />
-          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="border-none focus:ring-0 text-2xl font-black bg-transparent p-0 cursor-pointer" />
-        </div>
-        <div className="relative w-full md:flex-1 md:max-w-2xl">
-          <Search className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400" size={24} />
-          <input type="text" placeholder="ابحث عن اسم الطالب..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pr-16 pl-8 py-6 bg-slate-50 border-none rounded-[2.5rem] text-lg font-bold outline-none shadow-inner" />
+    <div className="space-y-8 animate-in slide-in-from-bottom-4">
+      <div className="flex justify-between items-center">
+        <div>
+          <h3 className="text-3xl font-black text-slate-800">رصد الحضور اليومي</h3>
+          <p className="text-slate-400 font-bold mt-1">تاريخ اليوم: {new Date().toLocaleDateString('ar-SA')}</p>
         </div>
       </div>
-      <div className="bg-white rounded-[4rem] shadow-2xl border-2 border-slate-50 overflow-hidden">
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-right min-w-[900px]">
-            <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase">
-              <tr>
-                <th className="px-12 py-10">هوية الطالب</th>
-                <th className="px-12 py-10">حالة الحضور</th>
-                <th className="px-12 py-10">التسميع</th>
-                <th className="px-12 py-10 text-center">التقييم اليومي</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {teacherStudents.filter(s => s.name.includes(searchTerm)).map(student => {
-                const record = records.find(r => r.studentId === student.id && r.date === selectedDate) || { attendance: 'حاضر', recitation: 'لم يسمّع', evaluation: 'جيد' };
-                return (
-                  <tr key={student.id} className="group hover:bg-slate-50/50 transition-colors">
-                    <td className="px-12 py-8">
-                       <button onClick={() => setSelectedStudentForProfile(student)} className="flex items-center gap-6 text-right outline-none">
-                          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center font-black overflow-hidden">{student.photoURL ? <img src={student.photoURL} className="w-full h-full object-cover" /> : student.name.charAt(0)}</div>
-                          <div>
-                            <span className="font-black text-slate-800 block text-lg group-hover:text-emerald-600">{student.name}</span>
-                            <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{student.age} سنة • {student.memorizedParts} أجزاء</span>
-                          </div>
-                       </button>
-                    </td>
-                    <td className="px-12 py-8">
-                      <div className="flex gap-2">
-                        {['حاضر', 'غائب', 'متأخر'].map(st => (
-                          <button key={st} onClick={() => updateDailyRecord(student.id, 'attendance', st)} className={`px-5 py-3 rounded-2xl text-[11px] font-black transition-all ${record.attendance === st ? (st === 'حاضر' ? 'bg-emerald-600 text-white shadow-lg' : st === 'غائب' ? 'bg-red-600 text-white shadow-lg' : 'bg-amber-500 text-white shadow-lg') : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>{st}</button>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-12 py-8">
-                      <button onClick={() => updateDailyRecord(student.id, 'recitation', record.recitation === 'سمّع' ? 'لم يسمّع' : 'سمّع')} className={`w-32 py-3 rounded-2xl text-[11px] font-black border-2 transition-all ${record.recitation === 'سمّع' ? 'bg-blue-600 text-white border-blue-600 shadow-lg' : 'bg-white text-slate-300 border-slate-100 hover:border-blue-200 hover:text-blue-400'}`}>
-                        {record.recitation}
-                      </button>
-                    </td>
-                    <td className="px-12 py-8">
-                      <div className="flex justify-center">
-                        <select value={record.evaluation} onChange={(e) => updateDailyRecord(student.id, 'evaluation', e.target.value as EvaluationGrade)} className={`text-[11px] font-black px-6 py-3 rounded-2xl border-none shadow-md outline-none cursor-pointer appearance-none transition-all hover:scale-105 ${EVALUATION_COLORS[record.evaluation as keyof typeof EVALUATION_COLORS] || ''}`}>
-                          {['ممتاز', 'جيد جدًا', 'جيد', 'يحتاج متابعة'].map(g => <option key={g} value={g}>{g}</option>)}
-                        </select>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <Card className="p-0 overflow-hidden">
+        <table className="w-full text-right">
+          <thead className="bg-slate-50 border-b border-slate-100">
+            <tr>
+              <th className="px-8 py-6 font-black text-slate-500">الطالب</th>
+              <th className="px-8 py-6 font-black text-slate-500 text-center">الحالة</th>
+              <th className="px-8 py-6 font-black text-slate-500">ملاحظات</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {teacherStudents.map(s => {
+              const record = records.find(r => r.studentId === s.id);
+              return (
+                <tr key={s.id} className="group hover:bg-slate-50/50 transition-colors">
+                  <td className="px-8 py-6 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-xl">{s.name.charAt(0)}</div>
+                    <span className="font-black text-slate-700">{s.name}</span>
+                  </td>
+                  <td className="px-8 py-6">
+                    <div className="flex justify-center gap-3">
+                      {(['حاضر', 'غائب', 'متأخر'] as AttendanceStatus[]).map(status => (
+                        <button
+                          key={status}
+                          onClick={() => updateAttendance(s.id, status)}
+                          className={`px-6 py-2 rounded-xl font-black text-sm transition-all ${record?.attendance === status ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-8 py-6">
+                    <input type="text" placeholder="أضف ملاحظة..." className="w-full bg-slate-50 px-4 py-2 rounded-lg text-sm border border-transparent focus:border-emerald-200 outline-none" />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </Card>
     </div>
   );
 
   const renderFollowUp = () => (
-    <div className="space-y-12 animate-in fade-in duration-1000">
-      <div className="bg-slate-900 p-12 md:p-20 rounded-[4rem] text-center relative overflow-hidden text-white shadow-2xl">
-        <h3 className="text-3xl md:text-5xl font-black mb-4">المساعد القرآني الذكي</h3>
-        <p className="text-emerald-100/50 max-w-2xl mx-auto text-base md:text-xl font-bold mb-16">تتبع دقيق لمواضع الحفظ والمراجعة لجميع الطلاب.</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8 text-right">
-           {teacherStudents.map(s => (
-             <div key={s.id} className="p-8 bg-white/5 backdrop-blur-3xl rounded-[3.5rem] border border-white/10 flex flex-col gap-6">
-                <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                    <h4 className="font-black text-xl text-white">{s.name}</h4>
-                    <BookMarked size={24} className="text-emerald-400" />
+    <div className="space-y-8 animate-in fade-in">
+       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <Card className="lg:col-span-1 space-y-6">
+             <h4 className="text-xl font-black">اختيار الطالب</h4>
+             <div className="space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar">
+                {teacherStudents.map(s => (
+                  <button key={s.id} className="w-full text-right p-4 rounded-2xl hover:bg-emerald-50 border border-slate-50 flex items-center gap-4 group transition-all">
+                     <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center font-black">{s.name.charAt(0)}</div>
+                     <span className="font-bold text-slate-700 group-hover:text-emerald-700">{s.name}</span>
+                  </button>
+                ))}
+             </div>
+          </Card>
+          <Card className="lg:col-span-2 space-y-10">
+             <h4 className="text-2xl font-black">تسجيل تسميع ومراجعة</h4>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                   <h5 className="font-black text-emerald-600 flex items-center gap-2"><BookOpen size={18}/> الحفظ الجديد</h5>
+                   <input type="text" placeholder="اسم السورة" className="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none focus:ring-2 ring-emerald-100" />
+                   <div className="grid grid-cols-2 gap-4">
+                      <input type="text" placeholder="من آية" className="w-full p-4 bg-slate-50 rounded-2xl border-none" />
+                      <input type="text" placeholder="إلى آية" className="w-full p-4 bg-slate-50 rounded-2xl border-none" />
+                   </div>
                 </div>
                 <div className="space-y-4">
-                   <div className="p-5 bg-white/5 rounded-2xl flex justify-between items-center text-white cursor-pointer hover:bg-white/10">
-                      <div className="flex flex-col"><span className="text-[9px] text-emerald-400">سورة الحفظ</span><span className="text-lg font-black">البقرة</span></div>
-                      <ChevronDown size={20} />
-                   </div>
-                   <div className="p-5 bg-white/5 rounded-2xl flex justify-between items-center text-white cursor-pointer hover:bg-white/10">
-                      <div className="flex flex-col"><span className="text-[9px] text-blue-400">سورة المراجعة</span><span className="text-lg font-black">آل عمران</span></div>
-                      <ChevronDown size={20} />
+                   <h5 className="font-black text-blue-600 flex items-center gap-2"><Activity size={18}/> المراجعة</h5>
+                   <input type="text" placeholder="اسم السورة" className="w-full p-4 bg-slate-50 rounded-2xl border-none" />
+                   <div className="grid grid-cols-2 gap-4">
+                      <input type="text" placeholder="من" className="w-full p-4 bg-slate-50 rounded-2xl border-none" />
+                      <input type="text" placeholder="إلى" className="w-full p-4 bg-slate-50 rounded-2xl border-none" />
                    </div>
                 </div>
              </div>
+             <div className="space-y-4">
+                <h5 className="font-black text-slate-800">التقييم اليومي</h5>
+                <div className="flex flex-wrap gap-4">
+                   {(['ممتاز', 'جيد جدًا', 'جيد', 'يحتاج متابعة'] as EvaluationGrade[]).map(grade => (
+                     <button key={grade} className={`px-8 py-3 rounded-2xl font-black text-sm border-2 ${EVALUATION_COLORS[grade]} border-transparent hover:border-emerald-200 transition-all`}>
+                        {grade}
+                     </button>
+                   ))}
+                </div>
+             </div>
+             <button className="w-full py-6 bg-emerald-600 text-white rounded-[2rem] font-black text-xl shadow-xl shadow-emerald-100">حفظ السجل</button>
+          </Card>
+       </div>
+    </div>
+  );
+
+  const renderInsights = () => (
+    <div className="space-y-8 animate-in zoom-in-95">
+      <div className="flex items-center gap-4 mb-10">
+         <div className="w-16 h-16 bg-blue-600 rounded-[1.8rem] flex items-center justify-center text-white shadow-xl shadow-blue-100"><BrainCircuit size={32}/></div>
+         <div>
+            <h3 className="text-3xl font-black text-slate-800">ذكاء تربوي (AI)</h3>
+            <p className="text-slate-400 font-bold">استخدم الذكاء الاصطناعي لتحليل أداء طلابك وتقديم نصائح مخصصة.</p>
+         </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {teacherStudents.map(s => (
+          <Card key={s.id} className="relative overflow-hidden group">
+            <div className="flex items-center justify-between mb-6">
+               <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center font-black text-xl text-slate-400 group-hover:bg-emerald-600 group-hover:text-white transition-all">{s.name.charAt(0)}</div>
+                  <h4 className="text-xl font-black text-slate-800">{s.name}</h4>
+               </div>
+               <button 
+                 onClick={() => runAiAnalysis(s)}
+                 disabled={analyzingId === s.id}
+                 className={`p-4 rounded-2xl ${analyzingId === s.id ? 'bg-slate-100 text-slate-300' : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'} transition-all`}
+               >
+                 {analyzingId === s.id ? <Clock size={24} className="animate-spin"/> : <Sparkles size={24}/>}
+               </button>
+            </div>
+            {aiAnalysis[s.id] ? (
+              <div className="p-6 bg-emerald-50 rounded-3xl border border-emerald-100 animate-in slide-in-from-top-2">
+                 <p className="text-emerald-900 font-bold leading-relaxed">{aiAnalysis[s.id]}</p>
+              </div>
+            ) : (
+              <div className="h-24 bg-slate-50 rounded-3xl flex items-center justify-center text-slate-300 font-bold italic">انقر على أيقونة التحليل للبدء</div>
+            )}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderLeaderboard = () => {
+    const sorted = [...students].sort((a, b) => b.points - a.points).slice(0, 10);
+    return (
+      <div className="space-y-10 animate-in fade-in">
+        <div className="text-center space-y-4 max-w-2xl mx-auto">
+           <Trophy size={80} className="mx-auto text-amber-500 animate-bounce" />
+           <h3 className="text-5xl font-black text-slate-800 tracking-tighter">لوحة الصدارة والتميز</h3>
+           <p className="text-slate-400 font-bold text-lg">أفضل الطلاب تفاعلاً وإنجازاً في مجمع أبا الحسن</p>
+        </div>
+        <div className="max-w-4xl mx-auto space-y-4">
+          {sorted.map((s, idx) => (
+            <Card key={s.id} className={`p-6 flex items-center justify-between transition-all ${idx === 0 ? 'border-amber-400 ring-4 ring-amber-50' : ''}`}>
+              <div className="flex items-center gap-8">
+                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-2xl ${idx === 0 ? 'bg-amber-500 text-white' : idx === 1 ? 'bg-slate-300 text-slate-800' : idx === 2 ? 'bg-orange-300 text-slate-800' : 'bg-slate-50 text-slate-400'}`}>
+                   {idx + 1}
+                 </div>
+                 <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center font-black text-xl text-slate-400">{s.name.charAt(0)}</div>
+                    <div>
+                       <h4 className="text-xl font-black text-slate-800">{s.name}</h4>
+                       <p className="text-sm font-bold text-slate-400">حلقة: {groups.find(g => g.id === s.groupId)?.name}</p>
+                    </div>
+                 </div>
+              </div>
+              <div className="flex items-center gap-10">
+                 <div className="text-center">
+                    <p className="text-xs font-black text-slate-300 uppercase tracking-widest mb-1">النقاط</p>
+                    <p className="text-3xl font-black text-emerald-600">{s.points}</p>
+                 </div>
+                 <div className="text-center">
+                    <p className="text-xs font-black text-slate-300 uppercase tracking-widest mb-1">المستوى</p>
+                    <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                       <div className="h-full bg-emerald-500" style={{ width: `${(s.points / 200) * 100}%` }}></div>
+                    </div>
+                 </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderStudentRecords = () => {
+    const studentRecords = records.filter(r => r.studentId === currentStudent?.id).sort((a,b) => b.date.localeCompare(a.date));
+    return (
+      <div className="space-y-8 animate-in slide-in-from-right-10">
+        <h3 className="text-3xl font-black text-slate-800">سجلي اليومي</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+           {studentRecords.map(r => (
+             <Card key={r.id} className="relative overflow-hidden">
+                <div className={`absolute top-0 right-0 w-2 h-full ${r.attendance === 'حاضر' ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
+                <div className="flex justify-between items-start mb-6">
+                   <div className="flex items-center gap-3">
+                      <Calendar size={18} className="text-slate-300"/>
+                      <span className="font-black text-slate-800 text-lg">{r.date}</span>
+                   </div>
+                   <span className={`px-4 py-1.5 rounded-full font-black text-xs ${r.attendance === 'حاضر' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>{r.attendance}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                   <div className="space-y-1">
+                      <p className="text-xs font-bold text-slate-400">التسميع</p>
+                      <p className="font-black text-slate-700">{r.recitation}</p>
+                   </div>
+                   <div className="space-y-1">
+                      <p className="text-xs font-bold text-slate-400">التقييم</p>
+                      <span className={`px-3 py-1 rounded-lg font-black text-sm ${EVALUATION_COLORS[r.evaluation]}`}>{r.evaluation}</span>
+                   </div>
+                </div>
+                {r.notes && (
+                  <div className="mt-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 flex gap-3">
+                     <MessageSquare size={16} className="text-slate-300 shrink-0"/>
+                     <p className="text-sm font-bold text-slate-500 italic">{r.notes}</p>
+                  </div>
+                )}
+             </Card>
            ))}
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
-  const renderLeaderboard = () => (
-    <div className="space-y-10 animate-in slide-in-from-bottom-10">
-      <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-12 rounded-[4rem] text-white flex flex-col md:flex-row items-center justify-between gap-10 shadow-2xl relative overflow-hidden">
-        <div className="relative z-10">
-          <h2 className="text-5xl font-black tracking-tighter mb-4">لوحة الصدارة</h2>
-          <p className="text-amber-100 text-lg font-bold">فرسان الحلقة المتميزون وأصحاب أعلى النقاط لهذا الفصل.</p>
-        </div>
-        <div className="relative z-10 bg-white/10 backdrop-blur-xl p-8 rounded-[3rem] border border-white/20">
-           <Trophy size={80} className="text-amber-200 animate-bounce" />
-        </div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {sortedLeaderboard.slice(0, 3).map((s, i) => (
-          <div key={s.id} className={`p-10 rounded-[4rem] border-2 shadow-xl flex flex-col items-center text-center transition-all hover:scale-105 ${i === 0 ? 'bg-amber-50 border-amber-200' : i === 1 ? 'bg-slate-50 border-slate-200' : 'bg-orange-50 border-orange-200'}`}>
-            <div className="relative mb-8">
-              <div className="absolute -top-6 -right-6 w-14 h-14 bg-white rounded-full flex items-center justify-center font-black text-2xl shadow-xl">
-                 {i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}
-              </div>
-              <div className="w-32 h-32 md:w-40 md:h-40 bg-white rounded-[3rem] p-2 shadow-2xl overflow-hidden flex items-center justify-center text-3xl font-black text-slate-400">
-                   {s.photoURL ? <img src={s.photoURL} className="w-full h-full object-cover" /> : s.name.charAt(0)}
-              </div>
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'admin_dashboard':
+        return (
+          <div className="space-y-10 animate-in fade-in duration-700">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+              <StatBox label="إجمالي الطلاب" value={students.length} icon={<Users size={28}/>} color="bg-emerald-50 text-emerald-600" />
+              <StatBox label="إجمالي الحلقات" value={groups.length} icon={<Layers size={28}/>} color="bg-amber-50 text-amber-600" />
+              <StatBox label="المعلمون" value={teachers.length - 1} icon={<UserPlus size={28}/>} color="bg-blue-50 text-blue-600" />
+              <StatBox label="نسبة الحضور" value="96%" icon={<Activity size={28}/>} color="bg-purple-50 text-purple-600" />
             </div>
-            <h3 className="text-2xl font-black text-slate-800 mb-2">{s.name}</h3>
-            <div className="flex items-center gap-3 bg-white px-6 py-2 rounded-full shadow-md font-black text-amber-600 text-lg">
-               <Zap size={20} fill="currentColor"/> {s.points} نقطة
-            </div>
+            <Card className="p-12">
+              <h3 className="text-2xl font-black mb-8">إحصائيات المجمع</h3>
+              <div className="h-[350px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={groups.map(g => ({ name: g.name, students: students.filter(s => s.groupId === g.id).length }))}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} />
+                    <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                    <Bar dataKey="students" fill="#059669" radius={[10, 10, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
           </div>
-        ))}
-      </div>
-      <div className="bg-white rounded-[4rem] border-2 border-slate-50 shadow-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-right">
-            <thead className="bg-slate-50 border-b border-slate-100">
-               <tr>
-                  <th className="px-12 py-8 text-[11px] font-black text-slate-400 uppercase tracking-widest">الترتيب</th>
-                  <th className="px-12 py-8 text-[11px] font-black text-slate-400 uppercase tracking-widest">الطالب</th>
-                  <th className="px-12 py-8 text-[11px] font-black text-slate-400 uppercase tracking-widest">النقاط</th>
-                  <th className="px-12 py-8 text-[11px] font-black text-slate-400 uppercase tracking-widest">سلسلة المواظبة</th>
-               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-               {sortedLeaderboard.slice(3, 15).map((s, idx) => (
-                 <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
-                   <td className="px-12 py-8 font-black text-slate-400">#{idx + 4}</td>
-                   <td className="px-12 py-8">
-                      <div className="flex items-center gap-5">
-                         <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center font-black text-slate-400">{s.name.charAt(0)}</div>
-                         <span className="font-black text-slate-800">{s.name}</span>
-                      </div>
-                   </td>
-                   <td className="px-12 py-8 font-black text-emerald-600">{s.points}</td>
-                   <td className="px-12 py-8">
-                      <div className="flex items-center gap-2 text-orange-500 font-black">
-                         <Flame size={18} fill="currentColor" /> {s.streak} يوم
-                      </div>
-                   </td>
-                 </tr>
-               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderInsights = () => {
-    const handleAiAnalysisForStudent = async (student: Student) => {
-      setSelectedStudentForAi(student);
-      setIsAnalyzing(true);
-      try {
-        const studentRecords = records.filter(r => r.studentId === student.id);
-        const analysis = await analyzeStudentProgress(student, studentRecords);
-        setAiAnalysis(analysis);
-      } finally { setIsAnalyzing(false); }
-    };
-
-    return (
-      <div className="flex flex-col lg:flex-row gap-10 animate-in fade-in">
-         <div className="w-full lg:w-96 space-y-4">
-            <h3 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-4"><BrainCircuit className="text-emerald-500" /> تحليل الطلاب</h3>
-            <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar">
-              {teacherStudents.map(s => (
-                 <button key={s.id} onClick={() => handleAiAnalysisForStudent(s)} className={`w-full p-6 rounded-[2.5rem] text-right transition-all flex items-center justify-between ${selectedStudentForAi?.id === s.id ? 'bg-emerald-600 text-white shadow-2xl' : 'bg-white border-2 border-slate-50 hover:border-emerald-200'}`}>
-                    <div className="flex items-center gap-4">
-                       <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center font-black text-slate-400 overflow-hidden">{s.photoURL ? <img src={s.photoURL} className="w-full h-full object-cover" /> : s.name.charAt(0)}</div>
-                       <span className="font-black">{s.name}</span>
+        );
+      case 'dashboard':
+        return (
+          <div className="space-y-10 animate-in fade-in">
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <StatBox label="طلاب حلقتك" value={teacherStudents.length} icon={<Users size={28}/>} color="bg-emerald-50 text-emerald-600" />
+                <StatBox label="الحضور اليومي" value={`${teacherStudents.length}/${teacherStudents.length}`} icon={<UserCheck size={28}/>} color="bg-blue-50 text-blue-600" />
+                <StatBox label="أوسمة موزعة" value="12" icon={<Award size={28}/>} color="bg-amber-50 text-amber-600" />
+             </div>
+             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <Card className="p-10">
+                   <h3 className="text-2xl font-black mb-8">طلاب متميزون هذا الأسبوع</h3>
+                   <div className="space-y-6">
+                      {teacherStudents.slice(0, 4).map(s => (
+                        <div key={s.id} className="flex items-center justify-between">
+                           <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 rounded-xl bg-slate-50 text-slate-300 flex items-center justify-center font-black">{s.name.charAt(0)}</div>
+                              <span className="font-bold text-slate-700">{s.name}</span>
+                           </div>
+                           <div className="flex gap-1 text-amber-400"><Star size={16} fill="currentColor"/><Star size={16} fill="currentColor"/><Star size={16} fill="currentColor"/></div>
+                        </div>
+                      ))}
+                   </div>
+                </Card>
+                <Card className="p-10 bg-emerald-600 text-white border-none">
+                   <h3 className="text-2xl font-black mb-4">رسالة المربي</h3>
+                   <p className="text-emerald-50 font-bold leading-relaxed opacity-80 mb-8 italic">"إن هذا القرآن مأدبة الله، فتعلموا من مأدبته ما استطعتم. وفقكم الله لتربية جيل قرآني فريد."</p>
+                   <button onClick={() => setActiveTab('insights')} className="w-full py-4 bg-white/10 hover:bg-white/20 rounded-2xl font-black transition-all flex items-center justify-center gap-2 border border-white/20">تفعيل المساعد الذكي <Sparkles size={18}/></button>
+                </Card>
+             </div>
+          </div>
+        );
+      case 'attendance': return renderAttendance();
+      case 'followup': return renderFollowUp();
+      case 'insights': return renderInsights();
+      case 'leaderboard': return renderLeaderboard();
+      case 'students':
+      case 'manage_students':
+        return (
+          <div className="space-y-10">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+              <h3 className="text-3xl font-black">قائمة الطلاب ({students.length})</h3>
+              <div className="relative w-full md:w-80">
+                <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={20}/>
+                <input type="text" placeholder="ابحث عن طالب..." className="w-full pr-12 pl-6 py-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 ring-emerald-100" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {(currentUser?.role === 'admin' ? students : teacherStudents).map(s => (
+                <Card key={s.id} className="p-6 flex items-center gap-6 group hover:border-emerald-200 transition-all cursor-pointer">
+                  <div className="w-20 h-20 rounded-[2rem] bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-3xl shadow-inner">{s.name.charAt(0)}</div>
+                  <div className="flex-1">
+                    <h4 className="text-xl font-black text-slate-800 group-hover:text-emerald-600 transition-colors">{s.name}</h4>
+                    <p className="text-sm font-bold text-slate-400 mt-1">المحفوظ: {s.memorizedParts} أجزاء</p>
+                    <div className="flex gap-3 mt-4">
+                       <div className="px-3 py-1 bg-amber-50 text-amber-600 rounded-lg text-[10px] font-black uppercase tracking-widest">{s.points} نقطة</div>
+                       <div className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest">{s.streak} يوم</div>
                     </div>
-                    <ChevronLeft size={20} />
-                 </button>
+                  </div>
+                </Card>
               ))}
             </div>
-         </div>
-         <div className="flex-1">
-            {selectedStudentForAi ? (
-              <div className="space-y-10">
-                 <div className="bg-slate-900 p-12 rounded-[4rem] text-white">
-                    <h4 className="text-3xl font-black mb-10 flex items-center gap-4"><Sparkles className="text-amber-400" /> توصية Gemini التربوية</h4>
-                    {isAnalyzing ? <div className="flex items-center gap-4"><Loader2 className="animate-spin" /> جاري التحليل...</div> : (
-                      <div className="text-xl leading-relaxed italic">{aiAnalysis}</div>
-                    )}
-                 </div>
-                 <div className="bg-white p-12 rounded-[4rem] shadow-2xl h-[400px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                       <AreaChart data={records.filter(r => r.studentId === selectedStudentForAi.id).slice(-10).map(r => ({ date: r.date, points: EVALUATION_POINTS[r.evaluation] }))}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="date" hide />
-                          <YAxis hide />
-                          <Tooltip />
-                          <Area type="monotone" dataKey="points" stroke="#10b981" fill="#10b981" fillOpacity={0.1} strokeWidth={4} />
-                       </AreaChart>
-                    </ResponsiveContainer>
-                 </div>
+          </div>
+        );
+      case 'manage_teachers':
+        return (
+          <div className="space-y-10 animate-in slide-in-from-top-4">
+            <div className="flex justify-between items-center">
+               <h3 className="text-3xl font-black">إدارة الكادر التعليمي</h3>
+               <button className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black shadow-xl">إضافة معلم جديد</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {teachers.map(t => (
+                <Card key={t.id} className="text-center group p-10">
+                  <div className={`w-24 h-24 rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform ${t.role === 'admin' ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-300'}`}>
+                    <User size={48} />
+                  </div>
+                  <h4 className="text-2xl font-black text-slate-800 mb-2">{t.name}</h4>
+                  <p className="text-slate-400 font-bold mb-6">@{t.username}</p>
+                  <div className="flex justify-center gap-4">
+                     <button className="p-3 bg-slate-50 rounded-xl text-slate-400 hover:text-emerald-600 transition-all"><Edit size={20}/></button>
+                     <button className="p-3 bg-slate-50 rounded-xl text-slate-400 hover:text-red-500 transition-all"><Trash2 size={20}/></button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        );
+      case 'student_profile':
+        return (
+          <div className="space-y-10 animate-in fade-in duration-700">
+            <Card className="relative overflow-hidden bg-emerald-600 text-white p-12 lg:p-16">
+              <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full -mr-48 -mt-48 blur-3xl"></div>
+              <div className="relative z-10 flex flex-col md:flex-row items-center gap-12">
+                <div className="w-48 h-48 rounded-[4rem] bg-white text-emerald-600 flex items-center justify-center text-7xl font-black shadow-2xl animate-in zoom-in-50 duration-500">
+                  {currentStudent?.name.charAt(0)}
+                </div>
+                <div className="text-center md:text-right space-y-4">
+                  <h2 className="text-5xl font-black tracking-tighter">{currentStudent?.name}</h2>
+                  <p className="text-emerald-100 font-bold text-xl opacity-80">عضو نشط في {groups.find(g => g.id === currentStudent?.groupId)?.name}</p>
+                  <div className="flex flex-wrap gap-6 justify-center md:justify-start pt-4">
+                     <div className="px-8 py-4 bg-white/10 backdrop-blur-md text-white rounded-[1.5rem] font-black flex items-center gap-3 border border-white/20">
+                       <Star size={24} fill="currentColor" className="text-amber-400" /> {currentStudent?.points} نقطة إنجاز
+                     </div>
+                     <div className="px-8 py-4 bg-white/10 backdrop-blur-md text-white rounded-[1.5rem] font-black flex items-center gap-3 border border-white/20">
+                       <Zap size={24} fill="currentColor" className="text-orange-400" /> {currentStudent?.streak} يوم متواصل
+                     </div>
+                  </div>
+                </div>
               </div>
-            ) : <div className="h-full flex flex-col items-center justify-center p-20 text-slate-300 font-black"><BrainCircuit size={80} className="mb-6 opacity-20" /> اختر طالباً لبدء التحليل الذكي</div>}
-         </div>
-      </div>
-    );
+            </Card>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <StatBox label="الأجزاء المتمة" value={currentStudent?.memorizedParts} icon={<BookOpen size={28}/>} color="bg-blue-50 text-blue-600" />
+              <StatBox label="الترتيب العام" value="#1" icon={<Trophy size={28}/>} color="bg-amber-50 text-amber-600" />
+              <StatBox label="تاريخ الانضمام" value="2024" icon={<Calendar size={28}/>} color="bg-purple-50 text-purple-600" />
+            </div>
+          </div>
+        );
+      case 'student_progress': return renderStudentRecords();
+      case 'student_badges':
+        return (
+          <div className="space-y-8 animate-in zoom-in-95">
+             <h3 className="text-3xl font-black text-slate-800">أوسمتي المكتسبة</h3>
+             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-8">
+                {[
+                  { icon: <Zap size={32}/>, name: "المواظب", color: "bg-blue-50 text-blue-600", desc: "لحضور 7 أيام متواصلة" },
+                  { icon: <Star size={32}/>, name: "النجم", color: "bg-amber-50 text-amber-600", desc: "للحصول على تقييم ممتاز" },
+                  { icon: <BookOpen size={32}/>, name: "الحافظ", color: "bg-emerald-50 text-emerald-600", desc: "لإتمام جزء كامل" },
+                  { icon: <Sparkle size={32}/>, name: "المجتهد", color: "bg-purple-50 text-purple-600", desc: "لتحسين الأداء الملحوظ" }
+                ].map((b, i) => (
+                  <Card key={i} className="p-8 text-center flex flex-col items-center gap-4 hover:translate-y-[-10px] transition-all cursor-help border-slate-50 group">
+                     <div className={`w-20 h-20 rounded-[2rem] ${b.color} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}>{b.icon}</div>
+                     <h5 className="font-black text-slate-800 text-lg">{b.name}</h5>
+                     <p className="text-[10px] font-bold text-slate-400 leading-tight">{b.desc}</p>
+                  </Card>
+                ))}
+             </div>
+          </div>
+        );
+      default:
+        return renderPlaceholder("القسم قيد التجهيز", <Settings size={100}/>);
+    }
   };
 
-  const renderDiscover = () => (
-    <div className="space-y-10 animate-in fade-in">
-       <div className="bg-slate-900 p-12 md:p-20 rounded-[4rem] text-white relative overflow-hidden text-center shadow-2xl">
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/az-subtle.png')] opacity-10"></div>
-          <div className="relative z-10 max-w-3xl mx-auto">
-             <div className="w-24 h-24 bg-emerald-500 rounded-[2.5rem] flex items-center justify-center mx-auto mb-10 shadow-2xl animate-float"><MapPin size={48}/></div>
-             <h2 className="text-5xl font-black tracking-tighter mb-6">اكتشف مراكز قرآنية</h2>
-             <p className="text-xl text-slate-400 font-bold mb-12">بتقنيات الذكاء الاصطناعي، نساعدك في العثور على أقرب مراكز التحفيظ والمساجد المعتمدة في منطقتك.</p>
-             <button 
-               onClick={handleDiscover}
-               disabled={isDiscovering}
-               className="px-12 py-6 bg-emerald-600 rounded-[2.5rem] font-black text-xl hover:bg-emerald-500 transition-all shadow-2xl flex items-center gap-4 mx-auto disabled:opacity-50"
-             >
-                {isDiscovering ? <Loader2 className="animate-spin" size={28}/> : <Sparkles size={28} />}
-                {isDiscovering ? 'جاري البحث في الخرائط...' : 'ابحث الآن'}
+  if (authStage === 'selecting') {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center p-8 font-['Tajawal']" dir="rtl">
+        <div className="max-w-6xl w-full text-center space-y-20">
+          <div className="space-y-8 animate-in slide-in-from-top-10 duration-700">
+             <div className="w-28 h-28 bg-emerald-600 rounded-[2.5rem] flex items-center justify-center shadow-2xl mx-auto text-white shadow-emerald-200">
+                <Award size={56} />
+             </div>
+             <div className="space-y-4">
+                <h1 className="text-6xl font-black text-slate-800 tracking-tighter leading-tight">مركز أبا الحسن المتطور</h1>
+                <p className="text-2xl text-slate-400 font-bold max-w-3xl mx-auto leading-relaxed">بوابتك الرقمية لمتابعة حفظ وتلاوة القرآن الكريم بأحدث التقنيات.</p>
+             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+             <button onClick={() => setAuthStage('staff-login')} className="group p-12 bg-white rounded-[3.5rem] shadow-xl hover:shadow-2xl hover:translate-y-[-12px] transition-all border border-slate-100 flex flex-col items-center text-center space-y-8">
+                <div className="w-24 h-24 bg-emerald-50 text-emerald-600 rounded-[2rem] flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-sm">
+                   <Briefcase size={44} />
+                </div>
+                <div><h3 className="text-3xl font-black text-slate-800 mb-3">الموظفين</h3><p className="text-base font-bold text-slate-400">إدارة الحلقات والطلاب ومتابعة الإنجاز.</p></div>
+                <div className="pt-4 text-emerald-600 font-black flex items-center gap-2 group-hover:gap-4 transition-all">دخول <ChevronLeft size={20} /></div>
+             </button>
+
+             <button onClick={() => setAuthStage('student-login')} className="group p-12 bg-white rounded-[3.5rem] shadow-xl hover:shadow-2xl hover:translate-y-[-12px] transition-all border border-slate-100 flex flex-col items-center text-center space-y-8">
+                <div className="w-24 h-24 bg-blue-50 text-blue-600 rounded-[2rem] flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
+                   <GraduationCap size={44} />
+                </div>
+                <div><h3 className="text-3xl font-black text-slate-800 mb-3">الطلاب</h3><p className="text-base font-bold text-slate-400">مشاهدة التقدم، النقاط، والأوسمة.</p></div>
+                <div className="pt-4 text-blue-600 font-black flex items-center gap-2 group-hover:gap-4 transition-all">دخول <ChevronLeft size={20} /></div>
+             </button>
+
+             <button onClick={() => setAuthStage('guest-view')} className="group p-12 bg-white rounded-[3.5rem] shadow-xl hover:shadow-2xl hover:translate-y-[-12px] transition-all border border-slate-100 flex flex-col items-center text-center space-y-8">
+                <div className="w-24 h-24 bg-amber-50 text-amber-600 rounded-[2rem] flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-all shadow-sm">
+                   <Globe size={44} />
+                </div>
+                <div><h3 className="text-3xl font-black text-slate-800 mb-3">الزوار</h3><p className="text-base font-bold text-slate-400">تصفح الإحصائيات، المعلمين، والاشتراك.</p></div>
+                <div className="pt-4 text-amber-600 font-black flex items-center gap-2 group-hover:gap-4 transition-all">تصفح <ChevronLeft size={20} /></div>
              </button>
           </div>
-       </div>
-
-       {discoveryData && (
-         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-top-10">
-            <div className="bg-white p-12 rounded-[4rem] border-2 border-slate-50 shadow-2xl">
-               <h3 className="text-2xl font-black text-slate-800 mb-8 flex items-center gap-4"><Info className="text-emerald-500" /> توصية Gemini</h3>
-               <div className="text-xl leading-relaxed text-slate-600 font-medium">
-                  {discoveryData.text}
-               </div>
-            </div>
-            <div className="bg-white p-12 rounded-[4rem] border-2 border-slate-50 shadow-2xl">
-               <h3 className="text-2xl font-black text-slate-800 mb-8 flex items-center gap-4"><MapPin className="text-blue-500" /> النتائج في الخرائط</h3>
-               <div className="space-y-4">
-                  {discoveryData.locations.map((loc, i) => (
-                    <a key={i} href={loc.uri} target="_blank" rel="noreferrer" className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-50 flex items-center justify-between hover:border-blue-200 hover:bg-blue-50 transition-all group shadow-sm">
-                       <div>
-                          <h4 className="font-black text-slate-800 text-lg">{loc.title}</h4>
-                          <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest mt-1 block">فتح في الخرائط</span>
-                       </div>
-                       <ExternalLink className="text-slate-300 group-hover:text-blue-500 transition-colors" />
-                    </a>
-                  ))}
-               </div>
-            </div>
-         </div>
-       )}
-    </div>
-  );
-
-  const renderStudents = () => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-10 animate-in fade-in">
-      {teacherStudents.filter(s => s.name.includes(searchTerm)).map(s => (
-        <div key={s.id} className="p-10 bg-white rounded-[4rem] border-2 border-slate-50 shadow-2xl hover:shadow-xl transition-all flex flex-col items-center group">
-           <div className="w-32 h-32 bg-emerald-50 text-emerald-600 rounded-[3rem] flex items-center justify-center text-4xl font-black mb-8 overflow-hidden">{s.photoURL ? <img src={s.photoURL} className="w-full h-full object-cover" /> : s.name.charAt(0)}</div>
-           <h4 className="font-black text-2xl mb-2">{s.name}</h4>
-           <p className="text-[10px] font-black text-slate-300 uppercase mb-10">منذ {s.joinDate}</p>
-           <button onClick={() => setSelectedStudentForProfile(s)} className="w-full py-5 bg-slate-900 text-white rounded-[2.5rem] font-black hover:bg-emerald-600 transition-all flex items-center justify-center gap-4 shadow-xl"><Eye size={20} /> عرض الملف</button>
-        </div>
-      ))}
-    </div>
-  );
-
-  const renderStatistics = () => (
-    <div className="space-y-12 animate-in fade-in">
-       <h3 className="text-4xl font-black text-slate-800 tracking-tighter">إحصائيات المجموعات</h3>
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-          {INITIAL_GROUPS.map((group, i) => {
-            const gStudents = students.filter(s => s.groupId === group.id);
-            return (
-              <div key={i} className="p-10 bg-white rounded-[4rem] border-2 border-slate-50 shadow-2xl relative overflow-hidden group hover:scale-[1.02] transition-all">
-                <div className="absolute top-0 left-0 w-3 h-full bg-emerald-500"></div>
-                <h4 className="text-2xl font-black mb-10 flex items-center gap-4"><Target className="text-emerald-500" /> {group.name}</h4>
-                <div className="grid grid-cols-2 gap-6">
-                   <div className="flex flex-col p-6 bg-blue-50 rounded-[2.5rem]"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2">الطلاب</span><span className="text-4xl font-black text-blue-700">{gStudents.length}</span></div>
-                   <div className="flex flex-col p-6 bg-orange-50 rounded-[2.5rem]"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-2">النقاط</span><span className="text-4xl font-black text-orange-700">{gStudents.reduce((acc, s) => acc + s.points, 0)}</span></div>
-                </div>
-              </div>
-            );
-          })}
-       </div>
-    </div>
-  );
-
-  const renderNotifications = () => (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in slide-in-from-top-12">
-       <h3 className="text-3xl font-black text-slate-800 mb-10">الإشعارات</h3>
-       {[
-         { title: 'تحليل Gemini جاهز', message: `تم إصدار تقرير جديد للطالب ${teacherStudents[0]?.name}.`, type: 'system', time: 'منذ ساعتين', new: true },
-         { title: 'تذكير بالاختبارات', message: 'يرجى إتمام مراجعة الطلاب قبل موعد الاختبار يوم الخميس القادم.', type: 'reminder', time: 'منذ يوم', new: false },
-       ].map((n, i) => (
-         <div key={i} className={`bg-white p-8 rounded-[3rem] border-2 shadow-xl flex items-center gap-8 group hover:scale-[1.02] transition-all relative overflow-hidden ${n.new ? 'border-emerald-200' : 'border-slate-50'}`}>
-            <div className={`w-16 h-16 rounded-[2rem] flex items-center justify-center ${n.new ? 'bg-emerald-50 text-emerald-500' : 'bg-slate-50 text-slate-300'}`}>{NOTIFICATION_ICONS[n.type as keyof typeof NOTIFICATION_ICONS]}</div>
-            <div className="flex-1 text-right">
-               <h4 className="font-black text-xl text-slate-800">{n.title}</h4>
-               <p className="text-base text-slate-400 mt-2 font-medium">{n.message}</p>
-            </div>
-            <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{n.time}</span>
-         </div>
-       ))}
-    </div>
-  );
-
-  const renderStatDetailModal = () => {
-    if (!statDetailModal) return null;
-    return (
-      <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 animate-in fade-in">
-        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setStatDetailModal(null)}></div>
-        <div className="relative w-full max-w-2xl bg-white rounded-[4rem] shadow-2xl overflow-hidden animate-in zoom-in-95 text-right">
-           <div className={`p-10 flex items-center justify-between ${statDetailModal.color} text-white`}>
-              <div>
-                <h3 className="text-3xl font-black tracking-tighter">{statDetailModal.type}</h3>
-                <p className="text-[10px] font-black opacity-70 mt-2 uppercase tracking-widest">إجمالي الحالات: {statDetailModal.students.length}</p>
-              </div>
-              <button onClick={() => setStatDetailModal(null)} className="p-5 bg-white/20 rounded-full hover:bg-white/30 transition-all"><X size={28} /></button>
-           </div>
-           <div className="p-10 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-4">
-              {statDetailModal.students.length > 0 ? statDetailModal.students.map(s => (
-                <div key={s.id} className="p-6 bg-slate-50 rounded-[2.5rem] border border-slate-50 flex items-center justify-between group hover:border-emerald-200 hover:bg-white transition-all shadow-sm">
-                   <div className="flex items-center gap-6">
-                      <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center font-black overflow-hidden">{s.photoURL ? <img src={s.photoURL} className="w-full h-full object-cover" /> : s.name.charAt(0)}</div>
-                      <div>
-                        <h4 className="font-black text-slate-800 text-lg">{s.name}</h4>
-                        <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{s.phone}</span>
-                      </div>
-                   </div>
-                   <button onClick={() => { setStatDetailModal(null); setSelectedStudentForProfile(s); }} className="p-4 bg-white text-slate-300 rounded-2xl group-hover:text-emerald-600 group-hover:shadow-lg transition-all"><Eye size={24}/></button>
-                </div>
-              )) : <div className="text-center py-20 opacity-20 flex flex-col items-center gap-6 grayscale"><Trophy size={80} /><p className="text-2xl font-black">لا توجد بيانات حالياً</p></div>}
-           </div>
         </div>
       </div>
     );
-  };
+  }
 
-  const renderStudentProfileModal = () => {
-    if (!selectedStudentForProfile) return null;
-    const s = selectedStudentForProfile;
-    const studentRecords = records.filter(r => r.studentId === s.id).sort((a,b) => b.date.localeCompare(a.date));
+  if (authStage === 'staff-login' || authStage === 'student-login') {
+    const isStaff = authStage === 'staff-login';
+    const sortedList = isStaff ? teachers : [...students].sort((a,b) => a.name.localeCompare(b.name, 'ar'));
     
     return (
-      <div className="fixed inset-0 z-[1001] flex items-center justify-center p-4 animate-in fade-in duration-300">
-        <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-2xl" onClick={() => setSelectedStudentForProfile(null)}></div>
-        <div className="relative w-full max-w-5xl bg-white rounded-[4rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-12 max-h-[95vh] overflow-y-auto custom-scrollbar">
-           <div className="h-48 bg-emerald-600 relative overflow-hidden">
-              <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/az-subtle.png')]"></div>
+      <div className="min-h-screen bg-slate-900/10 backdrop-blur-md flex items-center justify-center p-6 font-['Tajawal']" dir="rtl">
+        <div className="w-full max-w-xl bg-white rounded-[4rem] shadow-2xl p-12 md:p-20 relative overflow-hidden animate-in zoom-in duration-500">
+          <button onClick={() => setAuthStage('selecting')} className="absolute top-10 left-10 p-4 bg-slate-50 text-slate-400 rounded-2xl hover:bg-slate-100 transition-all shadow-sm"><X size={24}/></button>
+          <div className={`w-28 h-28 ${isStaff ? 'bg-emerald-600 shadow-emerald-200' : 'bg-blue-600 shadow-blue-200'} rounded-[2.5rem] flex items-center justify-center shadow-2xl mx-auto mb-12 text-white`}>
+             {isStaff ? <Briefcase size={56} /> : <GraduationCap size={56} />}
+          </div>
+          <h1 className="text-4xl font-black text-center text-slate-800 mb-2 tracking-tighter">{isStaff ? 'بوابة الموظفين' : 'بوابة الطلاب'}</h1>
+          <p className="text-center text-slate-400 font-bold mb-10">اختر اسمك واستخدم الرمز الموحد 1234</p>
+          <form onSubmit={isStaff ? handleStaffLogin : handleStudentLogin} className="space-y-8">
+             <div className="space-y-3">
+                <label className="text-xs font-black text-slate-400 mr-4 uppercase tracking-widest">الاسم الكامل</label>
+                <div className="relative">
+                  <select required value={loginForm.username} onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                    className="w-full px-10 py-7 bg-slate-50 border-2 border-transparent rounded-[2rem] text-xl font-bold outline-none focus:border-emerald-600 focus:bg-white transition-all appearance-none">
+                    <option value="">-- اختر اسمك --</option>
+                    {sortedList.map(item => <option key={item.id} value={item.name}>{item.name}</option>)}
+                  </select>
+                  <ChevronLeft className="absolute left-8 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none -rotate-90" size={24}/>
+                </div>
+             </div>
+             <div className="space-y-3">
+                <label className="text-xs font-black text-slate-400 mr-4 uppercase tracking-widest">رمز الدخول</label>
+                <input type="password" required placeholder="1234" value={loginForm.password} 
+                  onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} 
+                  className="w-full px-10 py-7 bg-slate-50 border-2 border-transparent rounded-[2rem] text-xl font-bold outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner" />
+             </div>
+             <button type="submit" className={`w-full py-8 ${isStaff ? 'bg-emerald-600 shadow-emerald-200' : 'bg-blue-600 shadow-blue-200'} text-white rounded-[2.5rem] font-black text-2xl shadow-2xl hover:opacity-90 active:scale-95 transition-all mt-6`}>دخول</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  if (authStage === 'guest-view') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col font-['Tajawal']" dir="rtl">
+        <header className="h-24 bg-white border-b border-slate-100 px-12 flex items-center justify-between sticky top-0 z-50">
+          <div className="flex items-center gap-4">
+             <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white"><Award size={20}/></div>
+             <h2 className="text-2xl font-black text-slate-800">مركز أبا الحسن</h2>
+          </div>
+          <button onClick={() => setAuthStage('selecting')} className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black flex items-center gap-2 shadow-xl shadow-slate-200"><ChevronRight size={18}/> الرئيسية</button>
+        </header>
+
+        <main className="p-8 md:p-12 max-w-7xl mx-auto space-y-16">
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <StatBox label="إجمالي الطلاب" value={students.length} icon={<Users size={28}/>} color="bg-emerald-50 text-emerald-600" />
+              <StatBox label="الأجزاء المتمة" value="1,240" icon={<BookOpen size={28}/>} color="bg-blue-50 text-blue-600" />
+              <StatBox label="طاقم العمل" value={teachers.length} icon={<Briefcase size={28}/>} color="bg-amber-50 text-amber-600" />
            </div>
-           <div className="px-10 md:px-20 -mt-24 md:-mt-32 relative z-10 pb-20 text-right">
-              <div className="flex flex-col md:flex-row items-center md:items-end gap-10 mb-16">
-                 <div className="relative group">
-                    <div className="w-40 h-40 md:w-60 md:h-60 bg-white p-3 rounded-[4rem] shadow-2xl border-4 border-white overflow-hidden flex items-center justify-center text-6xl font-black text-emerald-600">
-                       {s.photoURL ? <img src={s.photoURL} className="w-full h-full object-cover rounded-[3rem]" /> : s.name.charAt(0)}
-                    </div>
-                    <button onClick={() => fileInputRef.current?.click()} className="absolute bottom-4 left-4 p-5 bg-slate-900 text-white rounded-[2rem] shadow-2xl hover:bg-emerald-600 transition-all border-4 border-white group/btn">
-                       {isUploading ? <Loader2 className="animate-spin" size={24} /> : <Camera size={24} className="group-hover/btn:scale-110 transition-transform" />}
-                    </button>
-                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={async (e) => {
-                       const file = e.target.files?.[0];
-                       if (!file) return;
-                       setIsUploading(true);
-                       try {
-                          const url = await uploadStudentPhoto(s.id, file);
-                          setStudents(prev => prev.map(st => st.id === s.id ? { ...st, photoURL: url } : st));
-                          setSelectedStudentForProfile({ ...s, photoURL: url });
-                       } finally { setIsUploading(false); }
-                    }} />
-                 </div>
-                 <div className="flex-1">
-                    <h3 className="text-3xl md:text-6xl font-black text-slate-800 tracking-tighter mb-2">{s.name}</h3>
-                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
-                       <span className="px-6 py-2 bg-emerald-50 text-emerald-600 rounded-full font-black text-sm flex items-center gap-2 border border-emerald-100"><Target size={16}/> حلقة {teacherGroup?.name}</span>
-                       <span className="px-6 py-2 bg-amber-50 text-amber-600 rounded-full font-black text-sm flex items-center gap-2 border border-amber-100"><Zap size={16}/> {s.points} نقطة</span>
+
+           <Card className="bg-emerald-900 text-white border-none relative overflow-hidden p-12 lg:p-20 shadow-2xl shadow-emerald-200">
+              <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-800 rounded-full -ml-48 -mt-48 blur-3xl opacity-30"></div>
+              <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                 <div className="space-y-8">
+                    <h2 className="text-6xl font-black tracking-tighter leading-tight">سجّل ابنك الآن بـ 100 ريال فقط</h2>
+                    <p className="text-xl text-emerald-100/60 leading-relaxed font-bold">انضم لحلقاتنا القرآنية واحصل على نظام متابعة ذكي وتدريس متقن تحت إشراف نخبة من المعلمين.</p>
+                    <div className="flex flex-col sm:flex-row gap-6">
+                       <button onClick={() => setShowSubModal(true)} className="px-10 py-6 bg-white text-emerald-900 rounded-[2rem] font-black text-xl hover:shadow-2xl transition-all flex items-center justify-center gap-3 shadow-xl"><CreditCard size={24}/> اشترك الآن</button>
+                       <a href={`tel:${MANAGER_PHONE}`} className="px-10 py-6 bg-emerald-800 text-white border-2 border-emerald-700 rounded-[2rem] font-black text-xl flex items-center justify-center gap-3"><Phone size={24}/> المدير: {MANAGER_PHONE}</a>
                     </div>
                  </div>
-                 <div className="flex gap-4">
-                    <button onClick={() => setSelectedStudentForProfile(null)} className="p-5 md:p-8 bg-slate-100 text-slate-400 rounded-[2.5rem] hover:bg-red-50 hover:text-red-500 transition-all shadow-lg"><X size={24}/></button>
+                 <div className="hidden lg:block bg-white/5 p-12 rounded-[4rem] border border-white/10 backdrop-blur-md">
+                    <h4 className="text-2xl font-black mb-8 text-emerald-400">لماذا مجمع أبا الحسن؟</h4>
+                    <ul className="space-y-6">
+                       <li className="flex items-center gap-4 text-xl font-bold"><CheckCircle2 className="text-emerald-400"/> معلمين متقنين ومعتمدين</li>
+                       <li className="flex items-center gap-4 text-xl font-bold"><CheckCircle2 className="text-emerald-400"/> نظام تحفيز وجوائز أسبوعية</li>
+                       <li className="flex items-center gap-4 text-xl font-bold"><CheckCircle2 className="text-emerald-400"/> تقارير أداء دورية لولي الأمر</li>
+                    </ul>
                  </div>
               </div>
+           </Card>
 
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
-                 {[ 
-                   { icon: <TrendingUp className="text-emerald-500" />, label: 'الأجزاء المحفوظة', value: `${s.memorizedParts} أجزاء` }, 
-                   { icon: <CalendarDays className="text-amber-500" />, label: 'تاريخ الانضمام', value: s.joinDate }, 
-                   { icon: <Phone className="text-blue-500" />, label: 'الجوال', value: s.phone }, 
-                   { icon: <Flame className="text-orange-500" />, label: 'سلسلة المواظبة', value: `${s.streak} يوم` } 
-                 ].map((box, i) => (
-                    <div key={i} className="p-8 bg-slate-50 rounded-[3rem] border-2 border-slate-50 text-center transition-all hover:border-emerald-200 hover:bg-white hover:shadow-xl">
-                       <div className="flex justify-center mb-4">{box.icon}</div>
-                       <p className="text-[10px] font-black text-slate-400 uppercase mb-2 tracking-[0.2em]">{box.label}</p>
-                       <p className="text-xl font-black text-slate-800">{box.value}</p>
-                    </div>
+           <div className="space-y-12">
+              <div className="text-center">
+                 <h3 className="text-4xl font-black text-slate-800 tracking-tight">طاقم العمل والمعلمين</h3>
+                 <p className="text-slate-400 font-bold text-lg mt-2">نخبة من خيرة المعلمين لخدمة أهل القرآن</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+                 {teachers.map(t => (
+                    <Card key={t.id} className="text-center group hover:border-emerald-200 transition-all p-10 relative">
+                       {t.role === 'admin' && <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500 text-white flex items-center justify-center rounded-bl-3xl shadow-lg"><ShieldCheck size={28}/></div>}
+                       <div className={`w-24 h-24 rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform ${t.role === 'admin' ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-300'}`}><User size={48} /></div>
+                       <h4 className="text-2xl font-black text-slate-800 mb-2 leading-tight">{t.name}</h4>
+                       <span className={`px-4 py-1.5 rounded-full font-black text-[10px] uppercase ${t.role === 'admin' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{t.role === 'admin' ? 'مدير المركز' : 'معلم حلقة'}</span>
+                    </Card>
                  ))}
               </div>
            </div>
-        </div>
-      </div>
-    );
-  };
+        </main>
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const user = INITIAL_TEACHERS.find(t => t.username === loginForm.username && t.password === loginForm.password);
-    if (user) { setIsLoggedIn(true); setCurrentUser(user); }
-  };
-
-  if (!isLoggedIn) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-['Tajawal']" dir="rtl">
-          <div className="bg-white rounded-[4rem] shadow-2xl p-12 md:p-24 relative animate-in zoom-in duration-1000 w-full max-w-xl border border-slate-100">
-            <div className="w-32 h-32 bg-emerald-600 rounded-[3.5rem] flex items-center justify-center shadow-2xl mb-16 mx-auto group"><Award className="text-white group-hover:scale-110 transition-transform" size={80} /></div>
-            <h1 className="text-5xl font-black text-slate-800 tracking-tighter mb-2 text-center">أبا الحسن</h1>
-            <p className="text-slate-400 font-black mb-20 text-center text-[10px] uppercase tracking-[0.4em] opacity-60">نظام إدارة حلقات التحفيظ المتكامل</p>
-            <form onSubmit={handleLoginSubmit} className="space-y-10">
-              <input type="text" required placeholder="اسم المستخدم" value={loginForm.username} onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full px-8 py-8 bg-slate-50 border-none rounded-[2.5rem] text-xl font-bold outline-none focus:ring-8 focus:ring-emerald-500/5 shadow-inner transition-all" />
-              <div className="relative group">
-                 <input type={showPassword ? "text" : "password"} required placeholder="كلمة المرور" value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full px-8 py-8 bg-slate-50 border-none rounded-[2.5rem] text-xl font-bold outline-none focus:ring-8 focus:ring-emerald-500/5 shadow-inner transition-all" />
-                 <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 hover:text-emerald-600 transition-colors">{showPassword ? <EyeOff size={24}/> : <Eye size={24}/>}</button>
-              </div>
-              <button type="submit" className="w-full py-8 md:py-10 bg-emerald-600 text-white rounded-[3rem] font-black text-2xl shadow-2xl hover:bg-emerald-700 active:scale-95 transition-all">دخول النظام</button>
-            </form>
+        {showSubModal && (
+          <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[200] flex items-center justify-center p-6">
+             <div className="bg-white w-full max-w-2xl rounded-[4rem] p-12 md:p-20 shadow-2xl relative animate-in zoom-in">
+                <button onClick={() => setShowSubModal(false)} className="absolute top-10 left-10 text-slate-300 hover:text-slate-800 transition-colors p-2"><X size={36}/></button>
+                {isSuccess ? (
+                  <div className="text-center space-y-8 py-10">
+                     <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-xl"><CheckCircle2 size={64}/></div>
+                     <h2 className="text-4xl font-black text-slate-800">تم إرسال الطلب!</h2>
+                     <p className="text-xl font-bold text-slate-400 leading-relaxed">شكراً لانضمامكم لأسرة المركز. سنتواصل معكم قريباً لإكمال إجراءات التسجيل.</p>
+                  </div>
+                ) : (
+                  <>
+                    <h2 className="text-4xl font-black text-slate-800 mb-10 text-center">طلب اشتراك طالب جديد</h2>
+                    <form onSubmit={handleSubscription} className="space-y-8">
+                       <div className="space-y-3">
+                          <label className="text-xs font-black text-slate-400 mr-5 uppercase">الاسم الكامل للطالب</label>
+                          <input type="text" required placeholder="الاسم الثلاثي للطالب" value={subForm.name} onChange={(e) => setSubForm({...subForm, name: e.target.value})}
+                            className="w-full px-10 py-7 bg-slate-50 border-2 border-transparent rounded-[2.5rem] text-xl font-bold outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner" />
+                       </div>
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div className="space-y-3">
+                             <label className="text-xs font-black text-slate-400 mr-5 uppercase">الجنسية</label>
+                             <input type="text" required placeholder="سعودي، مقيم، إلخ" value={subForm.nationality} onChange={(e) => setSubForm({...subForm, nationality: e.target.value})}
+                               className="w-full px-10 py-7 bg-slate-50 border-2 border-transparent rounded-[2.5rem] text-xl font-bold outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner" />
+                          </div>
+                          <div className="space-y-3">
+                             <label className="text-xs font-black text-slate-400 mr-5 uppercase">العمر</label>
+                             <input type="number" required placeholder="السن بالسنوات" value={subForm.age} onChange={(e) => setSubForm({...subForm, age: e.target.value})}
+                               className="w-full px-10 py-7 bg-slate-50 border-2 border-transparent rounded-[2.5rem] text-xl font-bold outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner" />
+                          </div>
+                       </div>
+                       <button disabled={isSubmitting} type="submit" className="w-full py-8 bg-emerald-600 text-white rounded-[2.5rem] font-black text-2xl shadow-2xl hover:opacity-90 transition-all flex items-center justify-center gap-4">
+                          {isSubmitting ? 'جاري الإرسال...' : <><CheckCircle2 size={28}/> تأكيد الاشتراك - 100 ريال</>}
+                       </button>
+                    </form>
+                  </>
+                )}
+             </div>
           </div>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-50 flex-col lg:flex-row overflow-hidden font-['Tajawal']" dir="rtl">
-      <header className="lg:hidden bg-white border-b-2 border-slate-50 p-6 sticky top-0 z-[100] flex items-center justify-between shadow-xl">
-         <div className="flex items-center gap-4"><div className="w-12 h-12 bg-emerald-600 rounded-2xl flex items-center justify-center text-white shadow-xl"><Award size={28} /></div><h1 className="text-xl font-black text-slate-800 tracking-tighter">أبا الحسن</h1></div>
-         <button onClick={() => setActiveTab('notifications')} className="p-3 bg-slate-50 rounded-2xl relative"><Bell size={24} /></button>
-      </header>
-
-      <aside className="w-96 bg-white border-l-2 border-slate-50 hidden lg:flex flex-col shrink-0 shadow-2xl z-[100]">
-        <div className="p-12 h-full flex flex-col">
-          <div className="flex items-center gap-6 mb-20"><div className="w-16 h-16 bg-emerald-600 rounded-[2rem] flex items-center justify-center text-white shadow-2xl"><Award size={36}/></div><h1 className="text-4xl font-black text-slate-800 tracking-tighter">أبا الحسن</h1></div>
-          <nav className="space-y-4 flex-1 overflow-y-auto custom-scrollbar pr-2">
-            {NAVIGATION_ITEMS.map(item => {
-              if (item.restricted && !isFollowUpAllowed) return null;
-              const active = activeTab === item.id;
-              return (
-                <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-6 px-10 py-6 rounded-[2.5rem] transition-all text-right group relative overflow-hidden ${active ? 'bg-emerald-600 text-white shadow-2xl scale-[1.05]' : 'text-slate-400 hover:bg-emerald-50 hover:text-emerald-600'}`}>
-                  <div className={`transition-transform duration-500 group-hover:scale-125 ${active ? 'text-white' : 'text-slate-300 group-hover:text-emerald-500'}`}>{item.icon}</div>
-                  <span className="font-black text-lg">{item.label}</span>
-                </button>
-              );
-            })}
+    <div className="min-h-screen flex bg-[#f8fafc] flex-col lg:flex-row overflow-hidden font-['Tajawal']" dir="rtl">
+      {/* Sidebar - Desktop */}
+      <aside className={`w-80 bg-slate-950 text-white fixed lg:static inset-y-0 right-0 z-[100] transform transition-transform duration-300 lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
+        <div className="absolute inset-0 bg-gradient-to-b from-emerald-900/10 to-transparent pointer-events-none"></div>
+        <div className="p-10 relative z-10 flex flex-col h-full">
+          <div className="flex items-center justify-between mb-20">
+            <div className="flex items-center gap-5">
+              <div className="w-14 h-14 bg-emerald-600 rounded-[1.8rem] flex items-center justify-center shadow-2xl shadow-emerald-900/50">
+                <Award size={32} />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black tracking-tighter leading-tight">مركز أبا الحسن</h1>
+                <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest opacity-80 leading-none">أكاديمية المنارة</p>
+              </div>
+            </div>
+            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-white/50 hover:text-white"><X size={32}/></button>
+          </div>
+          
+          <nav className="space-y-4 flex-1">
+            {navigation.map(item => (
+              <button key={item.id} onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-5 px-8 py-5 rounded-[2rem] transition-all text-right group relative ${activeTab === item.id ? 'bg-emerald-600 text-white shadow-2xl' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
+                <span className={`${activeTab === item.id ? 'text-white' : 'text-emerald-600/60'}`}>{item.icon}</span>
+                <span className="font-black text-lg">{item.label}</span>
+                {activeTab === item.id && <div className="absolute left-[-10px] top-1/2 -translate-y-1/2 w-4 h-8 bg-white rounded-r-full shadow-lg shadow-white/50 animate-pulse"></div>}
+              </button>
+            ))}
           </nav>
-          <div className="mt-auto pt-10 border-t-2 border-slate-50 flex items-center justify-between">
-            <div className="flex items-center gap-5"><div className="w-16 h-16 rounded-[2rem] bg-emerald-100 flex items-center justify-center font-black text-emerald-700 shadow-xl border-2 border-white">{currentUser?.name.charAt(0)}</div><div><p className="font-black text-slate-800 text-base">{currentUser?.name}</p><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">معلم الحلقة</p></div></div>
-            <button onClick={() => setIsLoggedIn(false)} className="p-4 text-slate-300 hover:text-red-500 rounded-2xl transition-all"><LogOut size={28} /></button>
+          
+          <div className="mt-auto pt-10 border-t border-white/10">
+            <button onClick={handleLogout} className="w-full flex items-center gap-5 bg-white/5 p-6 rounded-[2.5rem] border border-white/10 hover:bg-red-500/20 transition-all group">
+               <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center group-hover:bg-red-500 transition-colors"><LogOut size={20}/></div>
+               <span className="font-black text-lg">خروج</span>
+            </button>
           </div>
         </div>
       </aside>
 
-      <main className="flex-1 overflow-hidden flex flex-col relative pb-28 lg:pb-0">
-        <header className="h-40 bg-white border-b-2 border-slate-50 px-20 items-center justify-between shrink-0 hidden lg:flex shadow-xl z-10">
-          <h2 className="text-6xl font-black text-slate-800 tracking-tighter mb-1 uppercase">حلقة {teacherGroup?.name}</h2>
-          <div className="flex items-center gap-10">
-             <span className="text-xl font-black text-slate-800">{new Date().toLocaleDateString('ar-SA', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
-             <button onClick={() => setActiveTab('notifications')} className="p-6 bg-slate-50 rounded-[2rem] text-slate-400 relative hover:bg-emerald-50 hover:text-emerald-600 transition-all shadow-sm">
-                <Bell size={32} />
-                <span className="absolute top-5 right-5 w-4 h-4 bg-red-500 rounded-full border-4 border-white animate-pulse"></span>
-             </button>
+      <main className="flex-1 overflow-hidden flex flex-col">
+        {/* Header */}
+        <header className="h-32 bg-white/50 backdrop-blur-md border-b border-slate-100 px-8 md:px-20 flex items-center justify-between shrink-0 z-50">
+          <div className="flex items-center gap-6">
+            <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-4 bg-white rounded-2xl shadow-sm border border-slate-100 text-slate-800"><Menu size={28}/></button>
+            <h2 className="text-3xl md:text-4xl font-black text-slate-800 tracking-tighter">
+               {navigation.find(n => n.id === activeTab)?.label || 'الرئيسية'}
+            </h2>
+          </div>
+          <div className="flex items-center gap-6">
+             <div className="hidden md:flex items-center gap-4 bg-white px-8 py-4 rounded-3xl border border-slate-100 shadow-sm">
+                <Calendar size={20} className="text-emerald-600" />
+                <span className="text-base font-black text-slate-700">{new Date().toLocaleDateString('ar-SA', { day: 'numeric', month: 'long' })}</span>
+             </div>
+             <div className="flex items-center gap-4">
+               <span className="hidden sm:inline font-black text-slate-800 text-lg">{currentUser?.name || currentStudent?.name}</span>
+               <div className="w-14 h-14 bg-emerald-600 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg shadow-emerald-100">{(currentUser?.name || currentStudent?.name)?.charAt(0)}</div>
+             </div>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6 md:p-20 bg-slate-50/30 custom-scrollbar">
-           <div className="max-w-[1600px] mx-auto h-full text-right">
-             {activeTab === 'dashboard' && renderDashboard()}
-             {activeTab === 'attendance' && renderAttendance()}
-             {activeTab === 'followup' && renderFollowUp()}
-             {activeTab === 'leaderboard' && renderLeaderboard()}
-             {activeTab === 'students' && renderStudents()}
-             {activeTab === 'insights' && renderInsights()}
-             {activeTab === 'discover' && renderDiscover()}
-             {activeTab === 'statistics' && renderStatistics()}
-             {activeTab === 'notifications' && renderNotifications()}
-           </div>
+        <div className="flex-1 overflow-y-auto p-8 md:p-20 custom-scrollbar bg-slate-50/50">
+           {renderContent()}
         </div>
       </main>
 
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t-2 border-slate-50 px-6 py-5 z-[100] flex justify-around items-center shadow-2xl rounded-t-[3rem]">
-         {NAVIGATION_ITEMS.filter(item => !item.restricted || isFollowUpAllowed).slice(0, 5).map(item => (
-           <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-2 transition-all duration-500 ${activeTab === item.id ? 'text-emerald-600 scale-125' : 'text-slate-300'}`}>
-             <div className={`p-3 rounded-[1.5rem] transition-all ${activeTab === item.id ? 'bg-emerald-50' : ''}`}>{item.icon}</div>
-           </button>
-         ))}
-      </nav>
-
-      {renderStatDetailModal()}
-      {renderStudentProfileModal()}
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 8px; } 
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; } 
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 40px; border: 4px solid transparent; background-clip: content-box; }
-        @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
-        .animate-float { animation: float 3s ease-in-out infinite; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 40px; }
       `}</style>
     </div>
   );

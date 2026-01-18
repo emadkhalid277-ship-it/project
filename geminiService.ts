@@ -1,6 +1,6 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { DailyRecord, Student, GroundingLocation } from "./types";
+import { DailyRecord, Student } from "./types";
 
 /**
  * تحلل تقدم الطالب وتقدم رؤى تربوية ذكية.
@@ -33,56 +33,6 @@ export const analyzeStudentProgress = async (student: Student, records: DailyRec
   }
 };
 
-/**
- * البحث عن مراكز تحفيظ قرآنية قريبة باستخدام Google Maps Grounding.
- */
-export const findNearbyCenters = async (lat: number, lng: number): Promise<{ text: string; locations: GroundingLocation[] }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const prompt = "ما هي أقرب مساجد أو مراكز تحفيظ قرآن معتمدة في منطقتي الحالية؟ قدم قائمة قصيرة ومفيدة.";
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-lite-latest",
-      contents: prompt,
-      config: {
-        tools: [{ googleMaps: {} }],
-        toolConfig: {
-          retrievalConfig: {
-            latLng: {
-              latitude: lat,
-              longitude: lng
-            }
-          }
-        }
-      },
-    });
-
-    const locations: GroundingLocation[] = [];
-    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    
-    if (chunks) {
-      chunks.forEach((chunk: any) => {
-        if (chunk.maps) {
-          locations.push({
-            title: chunk.maps.title,
-            uri: chunk.maps.uri,
-            address: "" // Optional if provided in snippets
-          });
-        }
-      });
-    }
-
-    return {
-      text: response.text || "إليك بعض المراكز القرآنية القريبة منك:",
-      locations
-    };
-  } catch (error) {
-    console.error("Maps grounding failed:", error);
-    return { text: "عذراً، لم نتمكن من جلب المواقع القريبة حالياً.", locations: [] };
-  }
-};
-
 export const generateStarPraise = async (student: Student, groupName: string) => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `اكتب عبارة فخر واعتزاز قصيرة وبليغة للطالب "${student.name}" من "${groupName}" بمناسبة تميزه اليوم (أقل من 30 كلمة).`;
@@ -98,16 +48,20 @@ export const generateStarPraise = async (student: Student, groupName: string) =>
   }
 };
 
+/**
+ * يصدر شهادة تقدير رقمية للطالب باستخدام نموذج الصور.
+ */
 export const generateCertificate = async (studentName: string, groupName: string) => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `A beautiful, official-looking digital recognition certificate for a Quran student named "${studentName}" from the group "${groupName}". Islamic patterns, emerald and gold colors. Arabic text: "شهادة تميز - الطالب: ${studentName}".`;
 
   try {
+    // Fix: Updated to gemini-2.5-flash-image which is the standard default and doesn't require key selection.
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
+      model: 'gemini-2.5-flash-image',
       contents: { parts: [{ text: prompt }] },
       config: {
-        imageConfig: { aspectRatio: "16:9", imageSize: "1K" }
+        imageConfig: { aspectRatio: "16:9" }
       }
     });
     for (const part of response.candidates[0].content.parts) {

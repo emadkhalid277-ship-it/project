@@ -3,7 +3,7 @@ export type AttendanceStatus = 'حاضر' | 'غائب' | 'متأخر';
 export type RecitationStatus = 'سمّع' | 'لم يسمّع';
 export type EvaluationGrade = 'ممتاز' | 'جيد جدًا' | 'جيد' | 'يحتاج متابعة';
 
-export type NotificationType = 'achievement' | 'reminder' | 'improvement' | 'system';
+export type UserRole = 'admin' | 'teacher';
 
 export interface Badge {
   id: string;
@@ -23,8 +23,8 @@ export interface Student {
   memorizedParts: number;
   photoURL?: string;
   badges?: string[];
-  points: number; // New: Total points for leaderboard
-  streak: number; // New: Consecutive attendance streak
+  points: number;
+  streak: number;
 }
 
 export interface Group {
@@ -38,6 +38,7 @@ export interface Teacher {
   name: string;
   username: string;
   password?: string;
+  role: UserRole; // 'admin' or 'teacher'
 }
 
 export interface DailyRecord {
@@ -64,10 +65,4 @@ export interface FollowUpRecord {
     fromVerse: string;
     toVerse: string;
   };
-}
-
-export interface GroundingLocation {
-  title: string;
-  uri: string;
-  address?: string;
 }
